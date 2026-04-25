@@ -159,6 +159,8 @@ def update_scatter(x_col, y_col, x_dir, y_dir, n_ranks, sim_data, selected_indic
 
     sub     = df[[x_col,y_col]].dropna()
     work_df = df.loc[sub.index].copy()
+    
+    # 在散布圖上，我們依然只顯示前 n_ranks 層的顏色
     work_df["_rank"] = compute_pareto_ranks(work_df, x_col, y_col, x_dir, y_dir, n_ranks)
 
     orig_indices = list(df.index)
@@ -429,23 +431,25 @@ def render_gallery(page, modal_style, n_clear, stored, x_col, y_col, x_dir, y_di
     try:
         df = pd.read_json(io.StringIO(stored), orient="split")
         work_df = df.copy()
-        work_df["_rank"] = compute_pareto_ranks(work_df, x_col, y_col, x_dir, y_dir, n_ranks)
         
-        work_df["_sort_weight"] = work_df["_rank"].apply(lambda r: r if r > 0 else 999)
-        all_df = work_df.sort_values("_sort_weight")
+        # 計算所有層級的 Rank
+        work_df["_rank"] = compute_pareto_ranks(work_df, x_col, y_col, x_dir, y_dir)
+        
+        # 依 Rank 排序 (Rank 1 優先)
+        gallery_df = work_df.sort_values("_rank")
         
         PAGE_SIZE = 50
-        total_mols = len(all_df)
+        total_mols = len(gallery_df)
         total_pages = max(1, (total_mols + PAGE_SIZE - 1) // PAGE_SIZE)
         
         current_page = min(max(0, page if page is not None else 0), total_pages - 1)
         
         start_idx = current_page * PAGE_SIZE
         end_idx = start_idx + PAGE_SIZE
-        gallery_df = all_df.iloc[start_idx:end_idx]
+        page_df = gallery_df.iloc[start_idx:end_idx]
         
         cards = []
-        for idx, row in gallery_df.iterrows():
+        for idx, row in page_df.iterrows():
             smiles = row.get("smiles", "")
             name = row.get("Name", "")
             rank = row["_rank"]
@@ -469,8 +473,8 @@ def render_gallery(page, modal_style, n_clear, stored, x_col, y_col, x_dir, y_di
                     html.Span(name if name else f"ID: {idx}", 
                               style={"fontSize":"11px", "fontWeight":"bold", "overflow":"hidden", "textOverflow":"ellipsis", "whiteSpace":"nowrap"}),
                 ], style={"display":"flex", "alignItems":"center", "marginTop":"5px"}),
-                html.Div(f"Rank {rank}" if rank > 0 else "非 Pareto", 
-                         style={"fontSize":"10px", "color":PARETO_COLORS.get(rank, "#888"), "fontWeight":"bold"}),
+                html.Div(f"Rank {rank}", 
+                         style={"fontSize":"10px", "color":PARETO_COLORS.get(rank if rank <= 5 else 0, "#888"), "fontWeight":"bold"}),
                 html.Div([
                     html.Div(f"{x_col}: {x_str}", style={"fontSize":"9px", "color":"#555"}),
                     html.Div(f"{y_col}: {y_str}", style={"fontSize":"9px", "color":"#555"}),

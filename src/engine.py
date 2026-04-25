@@ -11,27 +11,53 @@ except ImportError:
 
 PARETO_COLORS = {1:"#FF4136", 2:"#FF851B", 3:"#FFDC00", 4:"#2ECC40", 5:"#0074D9", 0:"#BBBBBB"}
 
-def compute_pareto_ranks(df, x_col, y_col, x_dir, y_dir, n_ranks):
+def compute_pareto_ranks(df, x_col, y_col, x_dir, y_dir, n_ranks=None):
+    """
+    計算所有分子的 Pareto Rank。
+    如果 n_ranks 為 None，則計算所有層級。
+    """
     vals = df[[x_col, y_col]].copy().astype(float)
     if x_dir == "maximize": vals[x_col] = -vals[x_col]
     if y_dir == "maximize": vals[y_col] = -vals[y_col]
-    ranks = pd.Series(0, index=df.index)
-    remaining = vals.copy()
-    rank = 1
-    while len(remaining) > 0 and rank <= n_ranks:
-        arr = remaining.values
-        front_idx = []
-        for i in range(len(arr)):
-            dominated = any(
-                arr[j,0] <= arr[i,0] and arr[j,1] <= arr[i,1] and
-                (arr[j,0] < arr[i,0] or arr[j,1] < arr[i,1])
-                for j in range(len(arr)) if j != i
-            )
-            if not dominated: front_idx.append(remaining.index[i])
-        ranks[front_idx] = rank
-        remaining = remaining.drop(front_idx)
-        rank += 1
-    return ranks
+    
+    # 轉為 numpy 加快速度
+    data = vals.values
+    n = len(data)
+    ranks = np.zeros(n, dtype=int)
+    
+    # indices 追蹤還沒被分配 rank 的點
+    remaining_indices = np.arange(n)
+    current_rank = 1
+    
+    while len(remaining_indices) > 0:
+        current_data = data[remaining_indices]
+        is_efficient = np.ones(len(current_data), dtype=bool)
+        
+        # 尋找目前的 Pareto Front
+        for i, c in enumerate(current_data):
+            if is_efficient[i]:
+                # 檢查是否有其他點支配點 i
+                # 支配條件：x_j <= x_i AND y_j <= y_i 且 (x_j < x_i OR y_j < y_i)
+                dominated = np.any(
+                    (current_data[:, 0] <= c[0]) & (current_data[:, 1] <= c[1]) &
+                    ((current_data[:, 0] < c[0]) | (current_data[:, 1] < c[1]))
+                )
+                if dominated:
+                    is_efficient[i] = False
+        
+        # 分配 Rank
+        front_indices = remaining_indices[is_efficient]
+        ranks[front_indices] = current_rank
+        
+        # 移除已分配的點
+        remaining_indices = remaining_indices[~is_efficient]
+        
+        # 如果使用者有指定 n_ranks 且已達到，則跳出（雖然我們現在傾向算完）
+        if n_ranks is not None and current_rank >= n_ranks:
+            break
+        current_rank += 1
+        
+    return pd.Series(ranks, index=df.index)
 
 @functools.lru_cache(maxsize=20000)
 def mol_to_fp(smiles):
