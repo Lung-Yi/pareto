@@ -1,0 +1,5 @@
+# Ignore local data or temporary files if needed
+data/
+__pycache__/
+*.pyc
+.env
